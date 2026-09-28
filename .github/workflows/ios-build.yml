@@ -1,0 +1,111 @@
+name: iOS App Build
+
+# Compile-only validation of the native app against the real Apple SDK, and a
+# check that the committed Xcode project still matches project.yml.
+# JsongCore / JsongPresentation tests stay in ci.yml (Linux). Screenshots live
+# in visual-smoke.yml; the unsigned Release device archive lives in
+# release-archive.yml.
+
+on:
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Superseded PR runs are cancelled; runs on main are never cancelled mid-build.
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Xcode build (iOS Simulator)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain versions
+        run: |
+          sw_vers
+          uname -m
+          xcode-select --print-path
+          xcodebuild -version
+          swift --version
+          echo "iOS Simulator SDK: $(xcrun --sdk iphonesimulator --show-sdk-version)"
+
+      - name: Set up XcodeGen
+        uses: ./.github/actions/setup-xcodegen
+
+      # The project and its shared scheme are committed so that the release
+      # workflows build exactly what was reviewed. Regenerating it in place
+      # must change nothing; otherwise it is stale or was edited outside
+      # project.yml.
+      - name: Check the committed Xcode project matches project.yml
+        id: project-check
+        run: |
+          project=JsongApp/Jsong.xcodeproj
+          scheme="$project/xcshareddata/xcschemes/Jsong.xcscheme"
+          if ! git ls-files --error-unmatch "$scheme" >/dev/null 2>&1; then
+            echo "::error::The shared scheme $scheme is not committed."
+            exit 1
+          fi
+          xcodegen generate --spec JsongApp/project.yml
+          changes="$(git status --porcelain --untracked-files=all -- JsongApp)"
+          if [[ -n "$changes" ]]; then
+            echo "::error::$project does not match JsongApp/project.yml. Regenerate it with the pinned XcodeGen from a checkout directory named Jsong and commit the result (see README, Building). This run's regenerated-xcodeproj artifact holds the expected project."
+            echo "$changes"
+            git --no-pager diff -- JsongApp
+            exit 1
+          fi
+          echo "Committed project matches a fresh generation."
+
+      - name: Upload regenerated project
+        if: failure() && steps.project-check.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: regenerated-xcodeproj
+          path: JsongApp/Jsong.xcodeproj
+          retention-days: 7
+
+      # The app must be an archivable product of the committed project, or
+      # the TestFlight workflow could not archive it. The local package's
+      # JsongCore and JsongPresentation libraries are listed too.
+      - name: List schemes and archivable products
+        run: |
+          project=JsongApp/Jsong.xcodeproj
+          xcodebuild -list -project "$project"
+          products="$(xcodebuild -project "$project" -describeAllArchivableProducts -json)"
+          echo "$products"
+          if ! grep -Eq '"bundleIdentifier" *: *"io\.github\.a91453\.Jsong"' <<<"$products"; then
+            echo "::error::Xcode finds no archivable io.github.a91453.Jsong app."
+            exit 1
+          fi
+
+      # A generic destination needs no booted Simulator. Code signing is
+      # disabled: Simulator builds need no certificate or Apple Developer
+      # account. Package resolution is disabled, as in the release archive,
+      # so a package that would need resolving fails here first.
+      - name: Build for iOS Simulator
+        run: |
+          xcodebuild build \
+            -project JsongApp/Jsong.xcodeproj \
+            -scheme Jsong \
+            -configuration Debug \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -disableAutomaticPackageResolution \
+            CODE_SIGNING_ALLOWED=NO
