@@ -1,0 +1,78 @@
+# XcodeGen spec for the native iPhone / iPad app.
+#
+# This file is the source of all project settings. The Jsong.xcodeproj
+# generated from it IS committed (the shared scheme must be in the
+# repository, and CI checks it). After changing this file, or adding,
+# removing or renaming an app source file or resource, regenerate from the
+# repository root and commit both:
+#
+#   xcodegen generate --spec JsongApp/project.yml
+#
+# Use the XcodeGen version pinned in .github/actions/setup-xcodegen/action.yml
+# (on Linux, build that release from source as CLAUDE.md describes), in a
+# checkout directory named Jsong: the directory name ends up in the project.
+# ios-build.yml fails if the committed project differs from a fresh
+# generation. Never edit the .xcodeproj by hand or in Xcode's project editor.
+# Paths below are relative to this file.
+name: Jsong
+
+options:
+  deploymentTarget:
+    iOS: "17.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+
+packages:
+  # The repository root is the Swift package that provides JsongCore and
+  # JsongPresentation.
+  Jsong:
+    path: ..
+
+targets:
+  Jsong:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      - path: Support
+      - path: Views
+      - path: Resources
+    dependencies:
+      - package: Jsong
+        product: JsongCore
+      - package: Jsong
+        product: JsongPresentation
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.a91453.Jsong
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # Automatic signing. No certificate or profile is committed: the
+        # TestFlight workflow signs with the App Store Connect API key and
+        # passes the Team ID (a GitHub variable) on the command line, so
+        # DEVELOPMENT_TEAM stays unset here. Do not pick a team in Xcode's
+        # Signing & Capabilities pane, which would edit the generated project.
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES"
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: Jsong
+        # The app has no encryption of its own (it makes no network requests
+        # yet; later ones will use the system's HTTPS, which is exempt), so
+        # TestFlight does not ask the export compliance question for every
+        # build. Revisit if the app ever adds its own cryptography.
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: "NO"
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: >-
+          UIInterfaceOrientationPortrait
+          UIInterfaceOrientationLandscapeLeft
+          UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: >-
+          UIInterfaceOrientationPortrait
+          UIInterfaceOrientationPortraitUpsideDown
+          UIInterfaceOrientationLandscapeLeft
+          UIInterfaceOrientationLandscapeRight
